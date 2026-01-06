@@ -1,0 +1,6 @@
+# Web scraping and browser automation
+playwright>=1.40.0
+
+# PDF manipulation
+PyPDF2>=3.0.0
+
