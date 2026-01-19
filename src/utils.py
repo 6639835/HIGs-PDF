@@ -1,15 +1,20 @@
+import hashlib
 import os
 import re
 import time
-import hashlib
-from datetime import datetime
+from typing import Iterable, Tuple
+
 from PyPDF2 import PdfReader
 
-def sanitize_filename(text):
-    """Create safe filenames from titles"""
-    return re.sub(r'[\\/*?:"<>|]', '', text)[:100].strip()
+FILENAME_MAX_LEN = 100
 
-def get_unique_filename(output_dir, base_name):
+
+def sanitize_filename(text: str) -> str:
+    """Create safe filenames from titles."""
+    return re.sub(r'[\\/*?:"<>|]', '', text)[:FILENAME_MAX_LEN].strip()
+
+
+def get_unique_filename(output_dir: str, base_name: str) -> str:
     """Create a unique filename using timestamp and hash if needed."""
     base, ext = os.path.splitext(base_name)
     timestamp = int(time.time() * 1000)
@@ -26,8 +31,9 @@ def get_unique_filename(output_dir, base_name):
             return filepath
         counter += 1
 
-def calculate_content_hash(page):
-    """Calculate hash of page content for duplicate detection"""
+
+def calculate_content_hash(page) -> str:
+    """Calculate hash of page content for duplicate detection."""
     content = page.evaluate("""() => {
         const main = document.querySelector('main') || document.body;
         const clone = main.cloneNode(true);
@@ -35,10 +41,11 @@ def calculate_content_hash(page):
         dynamics.forEach(el => el.remove());
         return clone.textContent;
     }""")
-    return hashlib.md5(content.encode()).hexdigest()
+    return hashlib.md5(content.encode("utf-8")).hexdigest()
 
-def get_pdf_page_count(pdf_path):
-    """Get the number of pages in a PDF file"""
+
+def get_pdf_page_count(pdf_path: str) -> int:
+    """Get the number of pages in a PDF file."""
     try:
         with open(pdf_path, 'rb') as file:
             reader = PdfReader(file)
@@ -47,8 +54,9 @@ def get_pdf_page_count(pdf_path):
         print(f"Error getting page count for {pdf_path}: {str(e)}")
         return 0
 
-def create_index_html(sections_info):
-    """Create index page HTML with Apple-style design"""
+
+def create_index_html(sections_info: Iterable[Tuple[str, int]]) -> str:
+    """Create index page HTML with Apple-style design."""
     items = '\n'.join([
         f'<li><a href="#{idx}"><span class="title">{title}</span>'
         f'<span class="page">{page}</span></a></li>'
@@ -110,8 +118,9 @@ def create_index_html(sections_info):
         </html>
     """
 
-def create_cover_html():
-    """Create a minimalist cover page"""
+
+def create_cover_html() -> str:
+    """Create a minimalist cover page."""
     return f"""
         <!DOCTYPE html>
         <html>
