@@ -1,6 +1,6 @@
-# Apple Human Interface Guidelines - PDF Generator
+# Apple Developer Design - PDF Generator
 
-This tool automatically scrapes and compiles Apple's Human Interface Guidelines into a comprehensive PDF document, complete with a cover page, table of contents, and bookmarks.
+This tool automatically scrapes and compiles Apple's Developer Design documentation (including Human Interface Guidelines) into comprehensive PDF documents, complete with cover pages, table of contents, and bookmarks.
 
 ## 🚨 Important Notice
 
@@ -17,13 +17,14 @@ Having Apple's Human Interface Guidelines available as a single, offline PDF pro
 
 ## ✨ Features
 
-- Automatically discovers all HIG articles from Apple's developer website
-- Generates individual PDFs for each article with proper formatting
-- Creates a professional cover page and table of contents
-- Merges all PDFs with working bookmarks and internal navigation
-- Handles pagination for images and special sections
-- Detects and removes duplicate content
-- Produces a single, well-structured PDF document
+- **Recursive URL Discovery**: Automatically discovers pages from any Apple Developer Design section
+- **Configurable Target**: Pull from Human Interface Guidelines, full Design section, or custom URLs
+- **Smart Deduplication**: Detects and removes duplicate content based on content hashing
+- **Professional PDFs**: Generates individual PDFs for each article with proper formatting
+- **Cover & TOC**: Creates a professional cover page and table of contents with page numbers
+- **Bookmarks**: Merges all PDFs with working bookmarks and internal navigation
+- **Image Handling**: Prevents page breaks inside images and special sections
+- **Flexible Options**: Command-line arguments for depth, max pages, and custom output
 
 ## 📋 Requirements
 
@@ -47,18 +48,52 @@ Having Apple's Human Interface Guidelines available as a single, offline PDF pro
 
 ## 🚀 Usage
 
-Run the main script:
+### Basic Usage
 
-```
+Pull all pages from the entire `/design/` section (including HIGs, resources, guides, etc.):
+
+```bash
 python main.py
 ```
 
+### Advanced Options
+
+```bash
+# Pull only Human Interface Guidelines
+python main.py --url https://developer.apple.com/design/human-interface-guidelines/ \
+               --pattern "/design/human-interface-guidelines/"
+
+# Pull all design pages with deeper recursion (follows more links)
+python main.py --depth 3
+
+# Limit the number of pages discovered
+python main.py --max-pages 100 --depth 1
+
+# Custom output directory
+python main.py --output-dir "Apple-Design-Docs"
+
+# View all options
+python main.py --help
+```
+
+### Command-Line Arguments
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--url` | `https://developer.apple.com/design/` | Starting URL for discovery |
+| `--pattern` | `/design/` | URL pattern to match |
+| `--depth` | `2` | Maximum recursion depth for link discovery |
+| `--max-pages` | `500` | Maximum number of pages to discover |
+| `--output-dir` | Auto-generated | Custom output directory name |
+
+### Output
+
 The script will:
-1. Discover all HIG articles from Apple's developer website
-2. Generate individual PDFs for each article
+1. Recursively discover pages from the specified URL
+2. Generate individual PDFs for each page
 3. Create a cover page and table of contents
 4. Merge everything into a single PDF
-5. Save the final PDF as "Apple HIGs Complete.pdf" in the "Apple-HIGs" directory
+5. Save the final PDF in the output directory (default: "Apple-HIGs")
 
 ## ⚠️ Potential Issues and Solutions
 
@@ -81,11 +116,25 @@ The script will:
 
 ## 🔍 Project Structure
 
-- `main.py` - The entry point script
-- `url_discovery.py` - Discovers HIG article URLs
-- `pdf_generator.py` - Converts articles to PDFs
-- `pdf_merger.py` - Merges PDFs with bookmarks
-- `utils.py` - Utility functions for the project
+```
+HIGs-PDF/
+├── main.py                      # Entry point with CLI argument parsing
+├── src/
+│   ├── url_discovery.py        # Recursive URL discovery with configurable patterns
+│   ├── pdf_generator.py        # Converts web pages to PDFs with proper formatting
+│   ├── pdf_merger.py           # Merges PDFs with bookmarks and TOC
+│   └── utils.py                # Utility functions (hashing, sanitization, etc.)
+└── README.md
+```
+
+### Key Improvements in This Version
+
+1. **Recursive Discovery**: Now crawls links recursively to discover nested pages
+2. **Configurable Targets**: Support for any Apple Developer section, not just HIGs
+3. **Better Title Extraction**: Improved extraction from multiple selectors and page titles
+4. **Smart Filtering**: Excludes download links, forums, and other non-content pages
+5. **CLI Arguments**: Full command-line interface for customization
+6. **Depth Control**: Configurable recursion depth to control discovery scope
 
 ## 📝 License
 

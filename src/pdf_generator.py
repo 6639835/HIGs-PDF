@@ -100,9 +100,22 @@ def add_page_break_script() -> str:
     """
 
 
-def generate_pdfs(article_urls: Iterable[str]) -> Tuple[str, List[str], List[Tuple[str, int]]]:
-    """Generate PDFs for all articles."""
-    output_dir = OUTPUT_DIR
+def generate_pdfs(
+    article_urls: Iterable[str],
+    output_dir: str = None
+) -> Tuple[str, List[str], List[Tuple[str, int]]]:
+    """
+    Generate PDFs for all articles.
+
+    Args:
+        article_urls: Iterable of URLs to convert to PDFs
+        output_dir: Custom output directory (optional, defaults to OUTPUT_DIR)
+
+    Returns:
+        Tuple of (output_dir, generated_files, sections_info)
+    """
+    if output_dir is None:
+        output_dir = OUTPUT_DIR
     os.makedirs(output_dir, exist_ok=True)
     generated_files: List[str] = []
     titles: List[str] = []
@@ -159,8 +172,20 @@ def generate_pdfs(article_urls: Iterable[str]) -> Tuple[str, List[str], List[Tup
                     except Exception:
                         print(f"Warning: No images found or timeout waiting for images in {url}")
 
-                    title_element = page.query_selector("h1")
-                    title = title_element.inner_text() if title_element else "Untitled"
+                    # Try multiple selectors for title extraction
+                    title_element = (
+                        page.query_selector("h1") or
+                        page.query_selector("title") or
+                        page.query_selector("h2")
+                    )
+                    if title_element:
+                        title = title_element.inner_text()
+                        # Clean up title from common patterns
+                        title = title.replace(" | Apple Developer", "").strip()
+                    else:
+                        # Fallback to page title or URL
+                        title = page.title().replace(" | Apple Developer", "").strip() or "Untitled"
+
                     titles.append(title)
 
                     path_parts = [part for part in urllib.parse.urlparse(url).path.split("/") if part]
