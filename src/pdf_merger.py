@@ -10,8 +10,20 @@ def merge_pdfs(
     output_dir: str,
     generated_files: Iterable[str],
     sections_info: List[Tuple[str, int]],
+    organize_files: bool = True,
 ) -> Optional[str]:
-    """Merge PDFs with working bookmarks and internal links."""
+    """
+    Merge PDFs with working bookmarks and internal links.
+
+    Args:
+        output_dir: Directory containing the PDFs
+        generated_files: List of PDF file paths to merge
+        sections_info: List of (title, page_number) tuples for bookmarks
+        organize_files: If True, move individual PDFs to a subdirectory
+
+    Returns:
+        Path to the merged PDF file, or None if merge failed
+    """
     generated_list = list(generated_files)
     if not generated_list:
         print("No PDFs found to merge.")
@@ -57,13 +69,31 @@ def merge_pdfs(
         merger.write(merged_path)
         merger.close()
 
-        # Clean up individual PDFs
-        for pdf in generated_list:
-            try:
+        # Organize individual PDFs into subdirectory if requested
+        if organize_files:
+            individual_dir = os.path.join(output_dir, "individual_pdfs")
+            os.makedirs(individual_dir, exist_ok=True)
+
+            print(f"\nOrganizing individual PDFs into: {individual_dir}/")
+            for pdf in generated_list:
                 if os.path.exists(pdf):
-                    os.remove(pdf)
-            except Exception as e:
-                print(f"Error removing {pdf}: {str(e)}")
+                    try:
+                        filename = os.path.basename(pdf)
+                        new_path = os.path.join(individual_dir, filename)
+                        os.rename(pdf, new_path)
+                    except Exception as e:
+                        print(f"Warning: Could not move {pdf}: {str(e)}")
+
+        # Summary
+        print(f"\n{'='*60}")
+        print("✅ PDF Generation Complete!")
+        print(f"{'='*60}")
+        print(f"📄 Merged PDF: {merged_path}")
+        if organize_files:
+            print(f"📁 Individual PDFs: {os.path.join(output_dir, 'individual_pdfs')}/ ({len(generated_list)} files)")
+        else:
+            print(f"📁 Individual PDFs: {output_dir}/ ({len(generated_list)} files)")
+        print(f"{'='*60}")
 
         return merged_path
 

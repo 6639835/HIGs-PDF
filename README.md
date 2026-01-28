@@ -85,6 +85,8 @@ python main.py --help
 | `--depth` | `2` | Maximum recursion depth for link discovery |
 | `--max-pages` | `500` | Maximum number of pages to discover |
 | `--output-dir` | Auto-generated | Custom output directory name |
+| `--keep-separate` | `True` | Keep individual PDF files after merging |
+| `--organize` | `True` | Move individual PDFs to `individual_pdfs/` subdirectory |
 
 ### Output
 
@@ -93,7 +95,27 @@ The script will:
 2. Generate individual PDFs for each page
 3. Create a cover page and table of contents
 4. Merge everything into a single PDF
-5. Save the final PDF in the output directory (default: "Apple-HIGs")
+5. Save both outputs in the directory (default: "Apple-HIGs"):
+   - **Merged PDF**: `Apple HIGs Complete.pdf` (single file with all content)
+   - **Individual PDFs**: `individual_pdfs/` folder (all separate page PDFs)
+
+### Output Structure
+
+```
+Apple-HIGs/
+├── Apple HIGs Complete.pdf    # 📄 Merged PDF with all content
+└── individual_pdfs/            # 📁 Folder with separate PDFs
+    ├── _cover.pdf              #    Cover page
+    ├── _index.pdf              #    Table of contents
+    ├── design-page-1.pdf       #    Individual pages
+    ├── design-page-2.pdf
+    ├── design-page-3.pdf
+    └── ...
+```
+
+**Both versions are preserved by default**, giving you:
+- ✅ **Merged PDF** - Easy to read, search, and share as one file
+- ✅ **Separate PDFs** - Individual files for selective use or reference
 
 ## ⚠️ Potential Issues and Solutions
 

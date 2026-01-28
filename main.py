@@ -59,6 +59,20 @@ Examples:
         help="Custom output directory name (default: auto-generated from URL)"
     )
 
+    parser.add_argument(
+        "--keep-separate",
+        action="store_true",
+        default=True,
+        help="Keep individual PDF files after merging (default: True)"
+    )
+
+    parser.add_argument(
+        "--organize",
+        action="store_true",
+        default=True,
+        help="Organize individual PDFs into subdirectory (default: True)"
+    )
+
     return parser.parse_args()
 
 
@@ -101,7 +115,12 @@ def main() -> None:
     print("\n" + "="*60)
     print("Starting PDF merge process...")
     print("="*60 + "\n")
-    final_pdf = merge_pdfs(output_folder, generated_files, sections_info)
+    final_pdf = merge_pdfs(
+        output_folder,
+        generated_files,
+        sections_info,
+        organize_files=args.organize
+    )
 
     if final_pdf:
         print(f"\n{'='*60}")
