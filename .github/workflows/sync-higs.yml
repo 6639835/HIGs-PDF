@@ -2,6 +2,11 @@ name: Sync Apple HIG PDFs + Markdown
 
 on:
   workflow_dispatch:
+    inputs:
+      marker_workers:
+        description: "Number of parallel workers for marker PDF->Markdown conversion"
+        required: false
+        default: "4"
   schedule:
     - cron: "0 10 * * 1" # Mondays 10:00 UTC
 
@@ -59,9 +64,12 @@ jobs:
 
       - name: Convert PDFs to Markdown (marker)
         run: |
-          python scripts/convert_pdfs_to_markdown.py \
-            --input-dir Apple-HIGs/individual_pdfs \
-            --output-dir Apple-HIGs/markdown
+          WORKERS="${{ github.event.inputs.marker_workers }}"
+          if [[ -z "${WORKERS}" ]]; then WORKERS=4; fi
+          marker ./Apple-HIGs/individual_pdfs \
+            --output_dir ./Apple-HIGs/markdown \
+            --output_format markdown \
+            --workers "${WORKERS}"
 
       - name: Commit and push if changed
         run: |
@@ -74,4 +82,3 @@ jobs:
           git add -A
           git commit -m "chore: sync PDFs and markdown"
           git push
-

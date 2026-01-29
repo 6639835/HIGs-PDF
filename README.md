@@ -82,6 +82,14 @@ python main.py --no-organize
 python main.py --help
 ```
 
+### PDF → Markdown (marker)
+
+If you also want Markdown output from the generated PDFs, install `marker-pdf` and run:
+
+```bash
+marker ./Apple-HIGs/individual_pdfs --output_dir ./Apple-HIGs/markdown --output_format markdown --workers 4
+```
+
 ### Command-Line Arguments
 
 | Argument | Default | Description |
