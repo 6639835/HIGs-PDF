@@ -72,6 +72,12 @@ python main.py --max-pages 100 --depth 1
 # Custom output directory
 python main.py --output-dir "Apple-Design-Docs"
 
+# Keep only the merged PDF (delete individual PDFs after merging)
+python main.py --no-keep-separate
+
+# Don't move individual PDFs into a subdirectory
+python main.py --no-organize
+
 # View all options
 python main.py --help
 ```
@@ -84,9 +90,11 @@ python main.py --help
 | `--pattern` | `/design/` | URL pattern to match |
 | `--depth` | `2` | Maximum recursion depth for link discovery |
 | `--max-pages` | `500` | Maximum number of pages to discover |
-| `--output-dir` | Auto-generated | Custom output directory name |
+| `--output-dir` | Auto-generated from URL | Custom output directory name |
 | `--keep-separate` | `True` | Keep individual PDF files after merging |
-| `--organize` | `True` | Move individual PDFs to `individual_pdfs/` subdirectory |
+| `--no-keep-separate` | `False` | Delete individual PDF files after merging |
+| `--organize` | `True` | Move individual PDFs to `individual_pdfs/` subdirectory (only when keeping separate PDFs) |
+| `--no-organize` | `False` | Do not move individual PDFs into a subdirectory |
 
 ### Output
 
@@ -95,15 +103,15 @@ The script will:
 2. Generate individual PDFs for each page
 3. Create a cover page and table of contents
 4. Merge everything into a single PDF
-5. Save both outputs in the directory (default: "Apple-HIGs"):
-   - **Merged PDF**: `Apple HIGs Complete.pdf` (single file with all content)
+5. Save outputs in the directory (default: auto-generated from the start URL, e.g. `Apple-Design` or `Apple-HIGs`):
+   - **Merged PDF**: `<Title> Complete.pdf` (single file with all content)
    - **Individual PDFs**: `individual_pdfs/` folder (all separate page PDFs)
 
 ### Output Structure
 
 ```
 Apple-HIGs/
-├── Apple HIGs Complete.pdf    # 📄 Merged PDF with all content
+├── Human Interface Guidelines Complete.pdf    # 📄 Merged PDF with all content
 └── individual_pdfs/            # 📁 Folder with separate PDFs
     ├── _cover.pdf              #    Cover page
     ├── _index.pdf              #    Table of contents

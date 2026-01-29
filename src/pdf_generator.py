@@ -1,6 +1,6 @@
 import os
 import urllib.parse
-from typing import Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 from playwright.sync_api import sync_playwright
 
@@ -15,11 +15,17 @@ from src.utils import (
 
 OUTPUT_DIR = "Apple-HIGs"
 PDF_MARGIN = {"top": "1cm", "bottom": "1cm", "left": "1cm", "right": "1cm"}
+INDEX_MARGIN = {"top": "0cm", "bottom": "0cm", "left": "0cm", "right": "0cm"}
+
+# A4 page size (CSS px at 96dpi). Used to map DOM coordinates to PDF points (72dpi).
+A4_WIDTH_PX = 794
+A4_HEIGHT_PX = 1123
+PT_PER_PX = 72.0 / 96.0
 
 
 def add_page_break_script() -> str:
     """JavaScript to handle image pagination and section breaks."""
-    return """
+    return """() => {
         // Handle images and their captions
         function wrapImageWithCaption(img) {
             const wrapper = document.createElement('div');
@@ -97,13 +103,55 @@ def add_page_break_script() -> str:
 
         // Then handle special sections
         handleSpecialSections();
+    }"""
+
+
+def _extract_index_link_rects(index_page) -> List[Dict]:
     """
+    Extract clickable rectangles for each TOC row in CSS pixels, then convert to PDF points.
+
+    Returns:
+        List[Dict]: [{idx: int, index_page: int, rect: [x1, y1, x2, y2]}] where rect is in PDF points.
+    """
+    return index_page.evaluate(
+        """(args) => {
+            const PAGE_W = args.pageWidthPx;
+            const PAGE_H = args.pageHeightPx;
+            const PT_PER_PX = args.ptPerPx;
+            const rows = Array.from(document.querySelectorAll('.row[data-idx]'));
+            return rows.map((row) => {
+                const idx = parseInt(row.getAttribute('data-idx') || '0', 10);
+                const rect = row.getBoundingClientRect();
+                // For long lists, the layout extends beyond a single "screen"; rect values can exceed PAGE_H.
+                const absTop = rect.top + window.scrollY;
+                const absBottom = rect.bottom + window.scrollY;
+                const pageIndex = Math.floor(absTop / PAGE_H);
+                const topOnPage = absTop - pageIndex * PAGE_H;
+                const bottomOnPage = absBottom - pageIndex * PAGE_H;
+
+                const x1 = rect.left;
+                const x2 = rect.right;
+                // Convert from CSS top-left origin to PDF bottom-left origin.
+                const y1 = (PAGE_H - bottomOnPage);
+                const y2 = (PAGE_H - topOnPage);
+
+                return {
+                    idx,
+                    index_page: pageIndex,
+                    rect: [x1 * PT_PER_PX, y1 * PT_PER_PX, x2 * PT_PER_PX, y2 * PT_PER_PX],
+                };
+            });
+        }""",
+        {"pageWidthPx": A4_WIDTH_PX, "pageHeightPx": A4_HEIGHT_PX, "ptPerPx": PT_PER_PX},
+    )
 
 
 def generate_pdfs(
     article_urls: Iterable[str],
-    output_dir: str = None
-) -> Tuple[str, List[str], List[Tuple[str, int]]]:
+    output_dir: str = None,
+    cover_title: str = "Apple Developer Design",
+    cover_subtitle: str = "A comprehensive offline reference",
+) -> Tuple[str, List[str], List[Tuple[str, int]], List[Dict]]:
     """
     Generate PDFs for all articles.
 
@@ -112,7 +160,7 @@ def generate_pdfs(
         output_dir: Custom output directory (optional, defaults to OUTPUT_DIR)
 
     Returns:
-        Tuple of (output_dir, generated_files, sections_info)
+        Tuple of (output_dir, generated_files, sections_info, toc_links)
     """
     if output_dir is None:
         output_dir = OUTPUT_DIR
@@ -133,14 +181,14 @@ def generate_pdfs(
         try:
             # Generate cover page
             cover_page = context.new_page()
-            cover_html = create_cover_html()
+            cover_html = create_cover_html(title=cover_title, subtitle=cover_subtitle)
             cover_page.set_content(cover_html)
             cover_file = os.path.join(output_dir, "_cover.pdf")
             cover_page.pdf(
                 path=cover_file,
                 format="A4",
                 print_background=True,
-                margin=PDF_MARGIN,
+                margin=INDEX_MARGIN,
             )
             cover_page.close()
 
@@ -220,22 +268,38 @@ def generate_pdfs(
 
             # Create index
             sections_info = list(zip(titles, page_numbers))
-            index_html = create_index_html(sections_info)
             index_file = os.path.join(output_dir, "_index.pdf")
 
-            index_page = context.new_page()
-            index_page.set_content(index_html)
-            index_page.pdf(
-                path=index_file,
-                format="A4",
-                print_background=True,
-                margin=PDF_MARGIN,
-            )
-            index_page.close()
+            # Render index PDF with corrected page numbers (2-pass/iterative: index page count can affect page numbers).
+            index_pages = 1
+            toc_links: List[Dict] = []
+            for _attempt in range(3):
+                display_sections_info = [(t, p + index_pages) for (t, p) in sections_info]
+                index_html = create_index_html(display_sections_info)
+
+                index_page = context.new_page()
+                index_page.set_viewport_size({"width": A4_WIDTH_PX, "height": A4_HEIGHT_PX})
+                index_page.set_content(index_html)
+                index_page.emulate_media(media="print")
+
+                toc_links = _extract_index_link_rects(index_page)
+
+                index_page.pdf(
+                    path=index_file,
+                    format="A4",
+                    print_background=True,
+                    margin=INDEX_MARGIN,
+                )
+                index_page.close()
+
+                new_index_pages = get_pdf_page_count(index_file)
+                if new_index_pages == index_pages:
+                    break
+                index_pages = new_index_pages
 
             # Add files in the correct order: cover, index, content
             generated_files = [cover_file, index_file] + generated_files
 
-            return output_dir, generated_files, sections_info
+            return output_dir, generated_files, sections_info, toc_links
         finally:
             browser.close()

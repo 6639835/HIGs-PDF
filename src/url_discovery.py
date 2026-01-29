@@ -1,5 +1,6 @@
 from urllib.parse import urljoin, urlparse
-from typing import List, Set
+from collections import deque
+from typing import Deque, List, Set
 import time
 
 from playwright.sync_api import sync_playwright, Page
@@ -81,7 +82,7 @@ def get_article_urls(
 
         try:
             discovered_urls = set()
-            urls_to_visit = {start_url}
+            urls_to_visit: Deque[str] = deque([start_url])
             visited_urls = set()
             depth_map = {start_url: 0}
 
@@ -89,8 +90,8 @@ def get_article_urls(
             print(f"URL pattern: {url_pattern}, Max depth: {max_depth}, Max pages: {max_pages}")
 
             while urls_to_visit and len(discovered_urls) < max_pages:
-                # Get next URL to visit
-                current_url = urls_to_visit.pop()
+                # Get next URL to visit (BFS; deterministic order)
+                current_url = urls_to_visit.popleft()
 
                 if current_url in visited_urls:
                     continue
@@ -108,16 +109,21 @@ def get_article_urls(
 
                     # If we haven't reached max depth, discover links on this page
                     if current_depth < max_depth:
-                        new_links = _discover_links_on_page(page, url_pattern)
+                        new_links = sorted(_discover_links_on_page(page, url_pattern))
                         print(f"  Found {len(new_links)} links on this page")
 
                         # Add new links to visit queue
+                        added = 0
                         for link in new_links:
-                            if link not in visited_urls and link not in urls_to_visit:
-                                urls_to_visit.add(link)
-                                depth_map[link] = current_depth + 1
+                            if link in visited_urls:
+                                continue
+                            if link in depth_map:
+                                continue
+                            urls_to_visit.append(link)
+                            depth_map[link] = current_depth + 1
+                            added += 1
 
-                        print(f"  Added {len(new_links - visited_urls)} new URLs to queue")
+                        print(f"  Added {added} new URLs to queue")
 
                     # Small delay to be respectful
                     time.sleep(0.5)

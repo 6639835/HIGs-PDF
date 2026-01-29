@@ -1,4 +1,5 @@
 import hashlib
+import html
 import os
 import re
 import time
@@ -58,8 +59,8 @@ def get_pdf_page_count(pdf_path: str) -> int:
 def create_index_html(sections_info: Iterable[Tuple[str, int]]) -> str:
     """Create index page HTML with Apple-style design."""
     items = '\n'.join([
-        f'<li><a href="#{idx}"><span class="title">{title}</span>'
-        f'<span class="page">{page}</span></a></li>'
+        f'<li><div class="row" data-idx="{idx}"><span class="title">{html.escape(title)}</span>'
+        f'<span class="page">{page}</span></div></li>'
         for idx, (title, page) in enumerate(sections_info, 1)
     ])
     
@@ -89,25 +90,29 @@ def create_index_html(sections_info: Iterable[Tuple[str, int]]) -> str:
                 li {{
                     border-bottom: 1px solid #d2d2d7;
                 }}
-                a {{
-                    text-decoration: none;
-                    color: inherit;
+                .row {{
+                    cursor: pointer;
                     padding: 12px 0;
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
                 }}
-                a:hover {{
+                .row:hover {{
                     color: #06c;
                 }}
                 .title {{
                     font-size: 17px;
                     letter-spacing: -0.022em;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    max-width: 720px;
                 }}
                 .page {{
                     color: #86868b;
                     font-size: 15px;
                     font-weight: 400;
+                    flex: 0 0 auto;
                 }}
             </style>
         </head>
@@ -119,7 +124,7 @@ def create_index_html(sections_info: Iterable[Tuple[str, int]]) -> str:
     """
 
 
-def create_cover_html() -> str:
+def create_cover_html(title: str = "Apple Developer Design", subtitle: str = "A comprehensive offline reference") -> str:
     """Create a minimalist cover page."""
     return f"""
         <!DOCTYPE html>
@@ -152,8 +157,8 @@ def create_cover_html() -> str:
         </head>
         <body>
             <div class="cover">
-                <h1>Human Interface Guidelines</h1>
-                <p class="subtitle">A comprehensive guide for designing<br>intuitive user experiences</p>
+                <h1>{html.escape(title)}</h1>
+                <p class="subtitle">{html.escape(subtitle).replace("\\n", "<br>")}</p>
             </div>
         </body>
         </html>
