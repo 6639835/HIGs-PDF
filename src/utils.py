@@ -8,6 +8,21 @@ from typing import Iterable, Set, Tuple
 from PyPDF2 import PdfReader
 
 FILENAME_MAX_LEN = 100
+_CONTENT_HASH_JS = """() => {
+    const main = document.querySelector('main') || document.body;
+    const clone = main.cloneNode(true);
+    const dynamics = clone.querySelectorAll('[data-dynamic], .timestamp, time');
+    dynamics.forEach(el => el.remove());
+
+    const text = (clone.textContent || '');
+    // FNV-1a 32-bit hash (fast and deterministic).
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+        hash ^= text.charCodeAt(i);
+        hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16).padStart(8, '0');
+}"""
 
 
 def sanitize_filename(text: str) -> str:
@@ -55,14 +70,13 @@ def get_incremental_filename(output_dir: str, base_name: str, used_paths: Set[st
 
 def calculate_content_hash(page) -> str:
     """Calculate hash of page content for duplicate detection."""
-    content = page.evaluate("""() => {
-        const main = document.querySelector('main') || document.body;
-        const clone = main.cloneNode(true);
-        const dynamics = clone.querySelectorAll('[data-dynamic], .timestamp, time');
-        dynamics.forEach(el => el.remove());
-        return clone.textContent;
-    }""")
-    return hashlib.md5(content.encode("utf-8")).hexdigest()
+    # Compute the hash in the browser context to avoid transferring large strings over the protocol.
+    return page.evaluate(_CONTENT_HASH_JS)
+
+
+async def calculate_content_hash_async(page) -> str:
+    """Async variant of calculate_content_hash()."""
+    return await page.evaluate(_CONTENT_HASH_JS)
 
 
 def get_pdf_page_count(pdf_path: str) -> int:

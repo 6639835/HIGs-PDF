@@ -1,16 +1,17 @@
+import asyncio
+import hashlib
 import os
 import urllib.parse
-from typing import Dict, Iterable, List, Tuple
+import uuid
+from typing import Dict, Iterable, List, Optional, Tuple
 
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
 
 from src.utils import (
-    calculate_content_hash,
+    calculate_content_hash_async,
     create_cover_html,
     create_index_html,
     get_pdf_page_count,
-    get_incremental_filename,
-    get_unique_filename,
     sanitize_filename,
 )
 
@@ -147,167 +148,236 @@ def _extract_index_link_rects(index_page) -> List[Dict]:
     )
 
 
-def generate_pdfs(
+def _url_digest(url: str) -> str:
+    return hashlib.md5(url.encode("utf-8")).hexdigest()[:8]
+
+
+async def _extract_title(page) -> str:
+    # Avoid multiple round-trips by extracting via JS.
+    raw: str = await page.evaluate(
+        """() => {
+            const h1 = document.querySelector('h1');
+            if (h1 && h1.innerText) return h1.innerText;
+            const t = document.querySelector('title');
+            if (t && t.innerText) return t.innerText;
+            const h2 = document.querySelector('h2');
+            if (h2 && h2.innerText) return h2.innerText;
+            return document.title || '';
+        }"""
+    )
+    title = (raw or "").replace(" | Apple Developer", "").strip()
+    return title or "Untitled"
+
+
+def _build_article_path(
+    *,
+    output_dir: str,
+    idx: int,
+    url: str,
+    title: str,
+    stable_filenames: bool,
+) -> str:
+    path_parts = [part for part in urllib.parse.urlparse(url).path.split("/") if part]
+    section = path_parts[-2] if len(path_parts) > 1 else "misc"
+    safe_title = sanitize_filename(f"{section}-{title}")[:90] or "Untitled"
+    digest = _url_digest(url)
+
+    if stable_filenames:
+        filename = f"{idx:04d}-{safe_title}-{digest}.pdf"
+    else:
+        nonce = uuid.uuid4().hex[:6]
+        filename = f"{safe_title}-{digest}-{nonce}.pdf"
+    return os.path.join(output_dir, filename)
+
+
+async def _generate_one_pdf(
+    *,
+    context,
+    semaphore: asyncio.Semaphore,
+    idx: int,
+    url: str,
+    output_dir: str,
+    stable_filenames: bool,
+    seen_lock: asyncio.Lock,
+    seen_hashes: set[str],
+) -> Optional[Dict]:
+    async with semaphore:
+        page = await context.new_page()
+        try:
+            await page.goto(url, wait_until="networkidle", timeout=60_000)
+
+            content_hash = await calculate_content_hash_async(page)
+            async with seen_lock:
+                if content_hash in seen_hashes:
+                    print(f"Skipping duplicate content: {url}")
+                    return None
+                seen_hashes.add(content_hash)
+
+            try:
+                await page.evaluate(add_page_break_script())
+            except Exception as exc:
+                print(f"Warning: Could not apply image pagination for {url}: {exc}")
+
+            title = await _extract_title(page)
+            filepath = _build_article_path(
+                output_dir=output_dir,
+                idx=idx,
+                url=url,
+                title=title,
+                stable_filenames=stable_filenames,
+            )
+
+            await page.pdf(
+                path=filepath,
+                format="A4",
+                print_background=True,
+                margin=PDF_MARGIN,
+                display_header_footer=False,
+            )
+
+            print(f"Generated ({idx}): {os.path.basename(filepath)}")
+            return {"idx": idx, "url": url, "title": title, "path": filepath}
+        except Exception as exc:
+            print(f"Failed {url}: {exc}")
+            return None
+        finally:
+            await page.close()
+
+
+async def _generate_pdfs_async(
     article_urls: Iterable[str],
     output_dir: str = None,
     cover_title: str = "Apple Developer Design",
     cover_subtitle: str = "A comprehensive offline reference",
     stable_filenames: bool = False,
+    workers: int = 8,
 ) -> Tuple[str, List[str], List[Tuple[str, int]], List[Dict]]:
-    """
-    Generate PDFs for all articles.
-
-    Args:
-        article_urls: Iterable of URLs to convert to PDFs
-        output_dir: Custom output directory (optional, defaults to OUTPUT_DIR)
-
-    Returns:
-        Tuple of (output_dir, generated_files, sections_info, toc_links)
-    """
     if output_dir is None:
         output_dir = OUTPUT_DIR
     os.makedirs(output_dir, exist_ok=True)
-    generated_files: List[str] = []
-    titles: List[str] = []
-    page_numbers: List[int] = []
-    content_hashes = set()
-    used_paths = set()
-    current_page = 1
 
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch()
-        context = browser.new_context(
+    article_list = list(article_urls)
+    if not article_list:
+        return output_dir, [], [], []
+
+    workers = max(1, int(workers))
+    semaphore = asyncio.Semaphore(workers)
+    seen_lock = asyncio.Lock()
+    seen_hashes: set[str] = set()
+
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch()
+        context = await browser.new_context(
             viewport={"width": 1200, "height": 800},
             forced_colors="none",
         )
 
+        # PDFs don't benefit from media streams, sockets, or other long-lived resources.
+        async def _route_handler(route, request):
+            if request.resource_type in {"media", "websocket", "eventsource"}:
+                await route.abort()
+            else:
+                await route.continue_()
+
+        await context.route("**/*", _route_handler)
+
         try:
-            # Generate cover page
-            cover_page = context.new_page()
+            # Cover page
+            cover_page = await context.new_page()
             cover_html = create_cover_html(title=cover_title, subtitle=cover_subtitle)
-            cover_page.set_content(cover_html)
+            await cover_page.set_content(cover_html)
             cover_file = os.path.join(output_dir, "_cover.pdf")
-            cover_page.pdf(
+            await cover_page.pdf(
                 path=cover_file,
                 format="A4",
                 print_background=True,
                 margin=INDEX_MARGIN,
             )
-            cover_page.close()
+            await cover_page.close()
+            cover_pages = get_pdf_page_count(cover_file)
 
-            # Store cover file but don't add to generated_files yet
-            current_page += get_pdf_page_count(cover_file)
-
-            # Generate PDFs for articles
-            article_list = list(article_urls)
-            for idx, url in enumerate(article_list, 1):
-                page = None
-                try:
-                    page = context.new_page()
-                    page.goto(url, wait_until="networkidle", timeout=60_000)
-
-                    content_hash = calculate_content_hash(page)
-                    if content_hash in content_hashes:
-                        print(f"Skipping duplicate content: {url}")
-                        continue
-
-                    content_hashes.add(content_hash)
-
-                    try:
-                        page.evaluate(add_page_break_script())
-                    except Exception as exc:
-                        print(f"Warning: Could not apply image pagination for {url}: {exc}")
-
-                    try:
-                        page.wait_for_selector("img", state="attached", timeout=5_000)
-                    except Exception:
-                        print(f"Warning: No images found or timeout waiting for images in {url}")
-
-                    # Try multiple selectors for title extraction
-                    title_element = (
-                        page.query_selector("h1") or
-                        page.query_selector("title") or
-                        page.query_selector("h2")
+            # Articles (parallel)
+            tasks = [
+                asyncio.create_task(
+                    _generate_one_pdf(
+                        context=context,
+                        semaphore=semaphore,
+                        idx=idx,
+                        url=url,
+                        output_dir=output_dir,
+                        stable_filenames=stable_filenames,
+                        seen_lock=seen_lock,
+                        seen_hashes=seen_hashes,
                     )
-                    if title_element:
-                        title = title_element.inner_text()
-                        # Clean up title from common patterns
-                        title = title.replace(" | Apple Developer", "").strip()
-                    else:
-                        # Fallback to page title or URL
-                        title = page.title().replace(" | Apple Developer", "").strip() or "Untitled"
+                )
+                for idx, url in enumerate(article_list, 1)
+            ]
 
-                    titles.append(title)
+            results = await asyncio.gather(*tasks)
+            generated_articles = [r for r in results if r is not None]
+            generated_articles.sort(key=lambda r: r["idx"])
 
-                    path_parts = [part for part in urllib.parse.urlparse(url).path.split("/") if part]
-                    section = path_parts[-2] if len(path_parts) > 1 else "misc"
-                    safe_title = sanitize_filename(f"{section}-{title}")
-                    base_name = f"{safe_title}.pdf"
-                    filepath = (
-                        get_incremental_filename(output_dir, base_name, used_paths=used_paths)
-                        if stable_filenames
-                        else get_unique_filename(output_dir, base_name)
-                    )
+            titles = [r["title"] for r in generated_articles]
+            article_paths = [r["path"] for r in generated_articles]
 
-                    pdf_options = {
-                        "path": filepath,
-                        "format": "A4",
-                        "print_background": True,
-                        "margin": PDF_MARGIN,
-                        "display_header_footer": False,
-                    }
-
-                    page.pdf(**pdf_options)
-
-                    page_count = get_pdf_page_count(filepath)
-                    page_numbers.append(current_page)
-                    current_page += page_count
-
-                    generated_files.append(filepath)
-                    print(
-                        f"Generated ({idx}/{len(article_list)}): "
-                        f"{os.path.basename(filepath)} - {page_count} pages"
-                    )
-                except Exception as exc:
-                    print(f"Failed {url}: {exc}")
-                finally:
-                    if page is not None:
-                        page.close()
-
-            # Create index
+            # Compute page numbers (sequential; uses generated PDFs).
+            page_numbers: List[int] = []
+            current_page = 1 + cover_pages
+            for pdf_path in article_paths:
+                page_numbers.append(current_page)
+                current_page += get_pdf_page_count(pdf_path)
             sections_info = list(zip(titles, page_numbers))
-            index_file = os.path.join(output_dir, "_index.pdf")
 
-            # Render index PDF with corrected page numbers (2-pass/iterative: index page count can affect page numbers).
+            # Index (iterative: index page count affects displayed numbers)
+            index_file = os.path.join(output_dir, "_index.pdf")
             index_pages = 1
             toc_links: List[Dict] = []
             for _attempt in range(3):
                 display_sections_info = [(t, p + index_pages) for (t, p) in sections_info]
                 index_html = create_index_html(display_sections_info)
 
-                index_page = context.new_page()
-                index_page.set_viewport_size({"width": A4_WIDTH_PX, "height": A4_HEIGHT_PX})
-                index_page.set_content(index_html)
-                index_page.emulate_media(media="print")
+                index_page = await context.new_page()
+                await index_page.set_viewport_size({"width": A4_WIDTH_PX, "height": A4_HEIGHT_PX})
+                await index_page.set_content(index_html)
+                await index_page.emulate_media(media="print")
 
-                toc_links = _extract_index_link_rects(index_page)
+                toc_links = await _extract_index_link_rects(index_page)
 
-                index_page.pdf(
+                await index_page.pdf(
                     path=index_file,
                     format="A4",
                     print_background=True,
                     margin=INDEX_MARGIN,
                 )
-                index_page.close()
+                await index_page.close()
 
                 new_index_pages = get_pdf_page_count(index_file)
                 if new_index_pages == index_pages:
                     break
                 index_pages = new_index_pages
 
-            # Add files in the correct order: cover, index, content
-            generated_files = [cover_file, index_file] + generated_files
-
+            generated_files = [cover_file, index_file] + article_paths
             return output_dir, generated_files, sections_info, toc_links
         finally:
-            browser.close()
+            await context.close()
+            await browser.close()
+
+
+def generate_pdfs(
+    article_urls: Iterable[str],
+    output_dir: str = None,
+    cover_title: str = "Apple Developer Design",
+    cover_subtitle: str = "A comprehensive offline reference",
+    stable_filenames: bool = False,
+    workers: int = 8,
+) -> Tuple[str, List[str], List[Tuple[str, int]], List[Dict]]:
+    return asyncio.run(
+        _generate_pdfs_async(
+            article_urls=article_urls,
+            output_dir=output_dir,
+            cover_title=cover_title,
+            cover_subtitle=cover_subtitle,
+            stable_filenames=stable_filenames,
+            workers=workers,
+        )
+    )

@@ -1,6 +1,7 @@
 import argparse
 import os
 import shutil
+import time
 
 from urllib.parse import urlparse
 
@@ -73,6 +74,20 @@ Examples:
         action="store_true",
         default=False,
         help="Use deterministic filenames for generated PDFs (useful for CI)",
+    )
+
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=max(1, min(16, (os.cpu_count() or 8))),
+        help="Concurrent workers for PDF generation (default: min(16, CPU count))",
+    )
+
+    parser.add_argument(
+        "--discovery-delay",
+        type=float,
+        default=0.0,
+        help="Optional delay (seconds) between page visits during URL discovery (default: 0.0)",
     )
 
     parser.add_argument(
@@ -175,13 +190,17 @@ def main() -> None:
     print(f"{'='*60}\n")
 
     # Discover URLs
+    t0 = time.perf_counter()
     articles = get_article_urls(
         start_url=args.url,
         url_pattern=args.pattern,
         max_depth=args.depth,
-        max_pages=args.max_pages
+        max_pages=args.max_pages,
+        delay_seconds=args.discovery_delay,
     )
+    t1 = time.perf_counter()
     print(f"\nFound {len(articles)} pages to convert")
+    print(f"Discovery time: {t1 - t0:.2f}s")
 
     if not articles:
         print("❌ No articles found. Exiting.")
@@ -191,18 +210,23 @@ def main() -> None:
     print("\n" + "="*60)
     print("Starting PDF generation...")
     print("="*60 + "\n")
+    t2 = time.perf_counter()
     output_folder, generated_files, sections_info, toc_links = generate_pdfs(
         articles,
         output_dir=output_dir,
         cover_title=document_title,
         cover_subtitle="A comprehensive offline reference",
         stable_filenames=args.stable_filenames,
+        workers=args.workers,
     )
+    t3 = time.perf_counter()
+    print(f"PDF generation time: {t3 - t2:.2f}s")
 
     # Merge PDFs
     print("\n" + "="*60)
     print("Starting PDF merge process...")
     print("="*60 + "\n")
+    t4 = time.perf_counter()
     final_pdf = merge_pdfs(
         output_folder,
         generated_files,
@@ -212,6 +236,8 @@ def main() -> None:
         keep_separate=args.keep_separate,
         organize_files=args.organize,
     )
+    t5 = time.perf_counter()
+    print(f"PDF merge time: {t5 - t4:.2f}s")
 
     if final_pdf:
         print(f"\n{'='*60}")

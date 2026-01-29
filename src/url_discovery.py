@@ -1,4 +1,4 @@
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from collections import deque
 from typing import Deque, List, Set
 import time
@@ -37,24 +37,35 @@ def _is_valid_design_url(url: str, url_pattern: str) -> bool:
 
 def _discover_links_on_page(page: Page, url_pattern: str) -> Set[str]:
     """Discover all valid links on the current page."""
-    links = page.query_selector_all(f'a[href*="{url_pattern}"]')
-    discovered = set()
+    # Pull hrefs in a single round-trip for performance.
+    hrefs: List[str] = page.evaluate(
+        """(args) => {
+            const { pattern, base } = args;
+            const anchors = Array.from(document.querySelectorAll(`a[href*="${pattern}"]`));
+            const out = new Set();
+            for (const a of anchors) {
+                const href = a.getAttribute('href');
+                if (!href) continue;
+                if (href === '#') continue;
+                let url;
+                try {
+                    url = new URL(href, base);
+                } catch {
+                    continue;
+                }
+                url.hash = '';
+                url.pathname = url.pathname.replace(/\\/+$/, '');
+                out.add(url.origin + url.pathname);
+            }
+            return Array.from(out);
+        }""",
+        {"pattern": url_pattern, "base": BASE_URL},
+    )
 
-    for link in links:
-        href = link.get_attribute("href")
-        if not href:
-            continue
-
-        # Handle relative and absolute URLs
-        full_url = urljoin(BASE_URL, href)
-
-        # Remove fragments and trailing slashes for consistency
-        parsed = urlparse(full_url)
-        clean_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/')}"
-
+    discovered: Set[str] = set()
+    for clean_url in hrefs:
         if _is_valid_design_url(clean_url, url_pattern):
             discovered.add(clean_url)
-
     return discovered
 
 
@@ -62,7 +73,8 @@ def get_article_urls(
     start_url: str = DEFAULT_START_URL,
     url_pattern: str = DEFAULT_URL_PATTERN,
     max_depth: int = 2,
-    max_pages: int = 500
+    max_pages: int = 500,
+    delay_seconds: float = 0.0,
 ) -> List[str]:
     """
     Recursively discover all pages under the specified URL pattern.
@@ -78,7 +90,17 @@ def get_article_urls(
     """
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context()
+
+        # Discovery doesn't need heavy assets; aborting them makes crawling much faster.
+        def _route_handler(route, request):
+            if request.resource_type in {"image", "media", "font"}:
+                route.abort()
+            else:
+                route.continue_()
+
+        context.route("**/*", _route_handler)
+        page = context.new_page()
 
         try:
             discovered_urls = set()
@@ -101,7 +123,11 @@ def get_article_urls(
 
                 try:
                     print(f"\n[Depth {current_depth}] Visiting: {current_url}")
-                    page.goto(current_url, wait_until="networkidle", timeout=60_000)
+                    page.goto(current_url, wait_until="domcontentloaded", timeout=60_000)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=5_000)
+                    except Exception:
+                        pass
 
                     # Add current page to discovered URLs
                     discovered_urls.add(current_url)
@@ -125,8 +151,8 @@ def get_article_urls(
 
                         print(f"  Added {added} new URLs to queue")
 
-                    # Small delay to be respectful
-                    time.sleep(0.5)
+                    if delay_seconds > 0:
+                        time.sleep(delay_seconds)
 
                 except Exception as e:
                     print(f"  ✗ Error visiting {current_url}: {str(e)}")
@@ -139,4 +165,5 @@ def get_article_urls(
             return sorted(discovered_urls)
 
         finally:
+            context.close()
             browser.close()

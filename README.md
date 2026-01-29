@@ -103,6 +103,8 @@ marker ./Apple-HIGs/individual_pdfs --output_dir ./Apple-HIGs/markdown --output_
 | `--no-keep-separate` | `False` | Delete individual PDF files after merging |
 | `--organize` | `True` | Move individual PDFs to `individual_pdfs/` subdirectory (only when keeping separate PDFs) |
 | `--no-organize` | `False` | Do not move individual PDFs into a subdirectory |
+| `--workers` | `min(16, CPU count)` | Concurrent workers for PDF generation |
+| `--discovery-delay` | `0.0` | Delay (seconds) between page visits during URL discovery |
 
 ### Output
 
