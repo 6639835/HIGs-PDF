@@ -3,7 +3,7 @@ import html
 import os
 import re
 import time
-from typing import Iterable, Tuple
+from typing import Iterable, Set, Tuple
 
 from PyPDF2 import PdfReader
 
@@ -29,6 +29,26 @@ def get_unique_filename(output_dir: str, base_name: str) -> str:
             
         filepath = os.path.join(output_dir, filename)
         if not os.path.exists(filepath):
+            return filepath
+        counter += 1
+
+
+def get_incremental_filename(output_dir: str, base_name: str, used_paths: Set[str] | None = None) -> str:
+    """
+    Create a stable unique filename by adding an incrementing suffix when needed.
+
+    This is useful for deterministic outputs (e.g., CI runs). Uniqueness is checked
+    against both the filesystem and the optional `used_paths` set.
+    """
+    base, ext = os.path.splitext(base_name)
+    counter = 0
+
+    while True:
+        filename = f"{base}{ext}" if counter == 0 else f"{base}_{counter}{ext}"
+        filepath = os.path.join(output_dir, filename)
+        if (used_paths is None or filepath not in used_paths) and not os.path.exists(filepath):
+            if used_paths is not None:
+                used_paths.add(filepath)
             return filepath
         counter += 1
 

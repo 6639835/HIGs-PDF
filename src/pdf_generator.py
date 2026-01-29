@@ -9,6 +9,7 @@ from src.utils import (
     create_cover_html,
     create_index_html,
     get_pdf_page_count,
+    get_incremental_filename,
     get_unique_filename,
     sanitize_filename,
 )
@@ -151,6 +152,7 @@ def generate_pdfs(
     output_dir: str = None,
     cover_title: str = "Apple Developer Design",
     cover_subtitle: str = "A comprehensive offline reference",
+    stable_filenames: bool = False,
 ) -> Tuple[str, List[str], List[Tuple[str, int]], List[Dict]]:
     """
     Generate PDFs for all articles.
@@ -169,6 +171,7 @@ def generate_pdfs(
     titles: List[str] = []
     page_numbers: List[int] = []
     content_hashes = set()
+    used_paths = set()
     current_page = 1
 
     with sync_playwright() as playwright:
@@ -239,7 +242,12 @@ def generate_pdfs(
                     path_parts = [part for part in urllib.parse.urlparse(url).path.split("/") if part]
                     section = path_parts[-2] if len(path_parts) > 1 else "misc"
                     safe_title = sanitize_filename(f"{section}-{title}")
-                    filepath = get_unique_filename(output_dir, f"{safe_title}.pdf")
+                    base_name = f"{safe_title}.pdf"
+                    filepath = (
+                        get_incremental_filename(output_dir, base_name, used_paths=used_paths)
+                        if stable_filenames
+                        else get_unique_filename(output_dir, base_name)
+                    )
 
                     pdf_options = {
                         "path": filepath,

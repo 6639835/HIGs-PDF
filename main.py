@@ -1,4 +1,6 @@
 import argparse
+import os
+import shutil
 
 from urllib.parse import urlparse
 
@@ -64,6 +66,20 @@ Examples:
     parser.add_argument(
         "--output-dir",
         help="Custom output directory name (default: auto-generated from URL)"
+    )
+
+    parser.add_argument(
+        "--stable-filenames",
+        action="store_true",
+        default=False,
+        help="Use deterministic filenames for generated PDFs (useful for CI)",
+    )
+
+    parser.add_argument(
+        "--clean-output",
+        action="store_true",
+        default=False,
+        help="Delete output directory before generating PDFs",
     )
 
     parser.add_argument(
@@ -138,6 +154,15 @@ def main() -> None:
     document_title = _document_title_from_url(args.url)
     merged_filename = f"{_slugify_filename(document_title)} Complete.pdf"
 
+    if args.clean_output and os.path.exists(output_dir):
+        repo_root = os.path.abspath(os.getcwd())
+        target = os.path.abspath(output_dir)
+        if not target.startswith(repo_root + os.sep):
+            raise ValueError(f"Refusing to delete output directory outside repo: {output_dir}")
+        if os.path.isfile(target):
+            raise ValueError(f"Refusing to delete file path: {output_dir}")
+        shutil.rmtree(target)
+
     print(f"\n{'='*60}")
     print("Apple Developer Design PDF Generator")
     print(f"{'='*60}")
@@ -171,6 +196,7 @@ def main() -> None:
         output_dir=output_dir,
         cover_title=document_title,
         cover_subtitle="A comprehensive offline reference",
+        stable_filenames=args.stable_filenames,
     )
 
     # Merge PDFs
