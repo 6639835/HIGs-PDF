@@ -146,6 +146,7 @@ def create_index_html(sections_info: Iterable[Tuple[str, int]]) -> str:
 
 def create_cover_html(title: str = "Apple Developer Design", subtitle: str = "A comprehensive offline reference") -> str:
     """Create a minimalist cover page."""
+    subtitle_html = html.escape(subtitle).replace("\\n", "<br>").replace("\n", "<br>")
     return f"""
         <!DOCTYPE html>
         <html>
@@ -178,7 +179,7 @@ def create_cover_html(title: str = "Apple Developer Design", subtitle: str = "A 
         <body>
             <div class="cover">
                 <h1>{html.escape(title)}</h1>
-                <p class="subtitle">{html.escape(subtitle).replace("\\n", "<br>")}</p>
+                <p class="subtitle">{subtitle_html}</p>
             </div>
         </body>
         </html>
